@@ -1,0 +1,13 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates an S3 Bucket
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: Name of the S3 bucket, must be unique.
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
