@@ -1,0 +1,16 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - echo Build started on `date`
+      - mkdir target
+      - cp service-workbench-example/example-notebook.ipynb target/
+      - cp service-workbench-example/example-notebook.bootstrap.sh target/
+  post_build:
+    commands:
+      - echo Build completed on `date`
+artifacts:
+  files:
+    - target/example-notebook.ipynb
+    - target/example-notebook.bootstrap.sh

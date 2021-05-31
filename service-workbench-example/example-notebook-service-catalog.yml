@@ -1,0 +1,56 @@
+
+# © 2021 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.
+# 
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement
+# available at http://aws.amazon.com/agreement or other written agreement between
+# Customer and either Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Service-Workbench-on-AWS Example Notebook Service Catalog Product
+
+Parameters:
+  ProductCloudFormationTemplate:
+    Type: String
+    Description: >-
+      An S3 URL (starting with https://) of the bucket and key for example-sagemaker-notebook.yml.
+      This should be uploaded to S3 before deploying this Cfn.
+  PortfolioId:
+    Type: String
+    Description: >-
+      Service Catalog Portfolio ID used by Service Workbench (something like: port-hialseckd)
+  ConstraintRoleName:
+    Type: String
+    Description: >-
+      Name of the role used when launching the product. By default, ServiceWorkbench uses a combination of
+      Namespace and SolutionName. This can be retrieved by viewing other LaunchConstraints in the ServiceCatalog
+      Portfolio backing ServiceWorkbench.
+
+Resources:
+  ExampleNotebookServiceCatalogProduct:
+    Type: AWS::ServiceCatalog::CloudFormationProduct
+    Properties:
+      Name: Example NotebookInstance
+      Description: >-
+        Deploys a SageMaker notebook instance preloaded with Jupyter notebook.
+      Owner: ServiceWorkbenchAdmin
+      ProvisioningArtifactParameters:
+        - Description: "Example Notebook v1.0"
+          Name: "v1"
+          Info:
+            LoadTemplateFromURL : !Ref ProductCloudFormationTemplate
+
+  ExampleNotebookSCProductPortfolioAssociation:
+    Type: AWS::ServiceCatalog::PortfolioProductAssociation
+    Properties:
+      PortfolioId: !Ref PortfolioId
+      ProductId: !Ref ExampleNotebookServiceCatalogProduct
+
+  ExampleNotebookLaunchConstraint:
+    Type: AWS::ServiceCatalog::LaunchRoleConstraint
+    DependsOn: ExampleNotebookSCProductPortfolioAssociation
+    Properties:
+      PortfolioId: !Ref PortfolioId
+      ProductId: !Ref ExampleNotebookServiceCatalogProduct
+      LocalRoleName: !Ref ConstraintRoleName
+

@@ -56,6 +56,21 @@ Resources:
               OutputArtifacts:
                 - Name: TemplateSource
               RunOrder: '1'
+        - Name: CopyToS3
+          Actions:
+            - Name: CreateStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              InputArtifacts:
+                - Name: TemplateSource
+              Configuration:
+                BucketName: stanford-backup-data
+                Extract: false
+                ObjectKey: TestArtifactCopyToS3
+              RunOrder: '1'
         - Name: TestStage
           Actions:
             - Name: CreateStack
@@ -72,7 +87,7 @@ Resources:
                 StackName: !Ref StackName
                 TemplateConfiguration: !Sub "TemplateSource::${TestStackConfig}"
                 TemplatePath: !Sub "TemplateSource::${TemplateFileName}"
-              RunOrder: '1'
+              RunOrder: '2'
   CFNRole:
     Type: AWS::IAM::Role
     Properties:
@@ -90,7 +105,7 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Action:
-                  - 'ec2:*'
+                  - 's3:*'
                 Effect: Allow
                 Resource: '*'
 
