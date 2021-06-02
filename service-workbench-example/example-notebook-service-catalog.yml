@@ -31,12 +31,12 @@ Resources:
     Type: AWS::ServiceCatalog::CloudFormationProduct
     Properties:
       Name: Example NotebookInstance
-      Description: >-
-        Deploys a SageMaker notebook instance preloaded with Jupyter notebook.
+      Description: Deploys a SageMaker notebook instance preloaded with Jupyter notebook.
       Owner: ServiceWorkbenchAdmin
       ProvisioningArtifactParameters:
         - Description: "Example Notebook v1.0"
-          Name: "v1"
+          Name: "v1.0"
+          DisableTemplateValidation: true
           Info:
             LoadTemplateFromURL : !Ref ProductCloudFormationTemplate
 
