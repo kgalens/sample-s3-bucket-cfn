@@ -16,12 +16,33 @@ Parameters:
   StackName:
     Type: String
     Default: TestBucketDeployStack
+
+  SourceDirectory:
+    Type: String
+    Default: workflows/service-workbench-example
   TemplateFileName:
     Type: String
-    Default: create-bucket.yml
-  TestStackConfig:
+    Default: example-notebook-service-catalog.yml
+  TemplateStackConfig:
     Type: String
-    Default: create-bucket-config.json
+    Default: example-notebook-service-catalog.json
+  ProductTemplateName:
+    Type: String
+    Default: example-sagemaker-notebook.yml
+
+  CustomEnvironmentFilesBucketName:
+    Type: String
+    Default: 498785437796-dev-va-swb-environments-bootstrap-scripts
+  CustomEnvironmentFilesPrefix:
+    Type: String
+    Default: environment-files/custom-environment-files
+  PortfolioId:
+    Type: String
+    Default: port-nswqfxj5fmceq
+  ConstraintRoleName:
+    Type: String
+    Default: dev-va-swb-LaunchConstraint
+
 
 Resources:
   ArtifactStoreBucket:
@@ -30,13 +51,40 @@ Resources:
       VersioningConfiguration:
         Status: Enabled
 
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: SwbCICDBuildProject
+      Description: Build Project for example CICD workflow for Service Workbench Deployment.
+      ServiceRole: !GetAtt [BuildRole, Arn]
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:4.0
+        EnvironmentVariables:
+          - Name: source_directory
+            Type: PLAINTEXT
+            Value: !Ref SourceDirectory
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName: 'swb-cicd-build-project-logs'
+          StreamName: 'log-stream'
+          Status: ENABLED
+      Source:
+        Type: CODEPIPELINE
+
   Pipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
       ArtifactStore:
         Location: !Ref 'ArtifactStoreBucket'
         Type: S3
-      Name: !Ref 'PipelineName'
+      Name: !Join
+        - '-'
+        - - !Ref 'PipelineName'
+          - !Ref 'AWS::StackName'
       RoleArn: !GetAtt [PipelineRole, Arn]
       Stages:
         - Name: GithubSource
@@ -56,21 +104,36 @@ Resources:
               OutputArtifacts:
                 - Name: TemplateSource
               RunOrder: '1'
+        - Name: Build
+          Actions:
+            - Name: CreateDeployArtifact
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: TemplateSource
+              OutputArtifacts:
+                - Name: BuiltTarget
+              RunOrder: '2'
         - Name: CopyToS3
           Actions:
-            - Name: CreateStack
+            - Name: DeployToS3
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
                 Provider: S3
                 Version: '1'
               InputArtifacts:
-                - Name: TemplateSource
+                - Name: BuiltTarget
               Configuration:
-                BucketName: stanford-backup-data
-                Extract: false
-                ObjectKey: TestArtifactCopyToS3
-              RunOrder: '1'
+                BucketName: !Ref CustomEnvironmentFilesBucketName
+                Extract: true
+                ObjectKey: !Ref CustomEnvironmentFilesPrefix 
+              RunOrder: '3'
         - Name: TestStage
           Actions:
             - Name: CreateStack
@@ -80,14 +143,16 @@ Resources:
                 Provider: CloudFormation
                 Version: '1'
               InputArtifacts:
-                - Name: TemplateSource
+                - Name: BuiltTarget
               Configuration:
                 ActionMode: REPLACE_ON_FAILURE
                 RoleArn: !GetAtt [CFNRole, Arn]
-                StackName: !Ref StackName
-                TemplateConfiguration: !Sub "TemplateSource::${TestStackConfig}"
-                TemplatePath: !Sub "TemplateSource::${TemplateFileName}"
-              RunOrder: '2'
+                StackName: !Sub "${StackName}-${AWS::StackName}"
+                TemplateConfiguration: !Sub "BuiltTarget::${SourceDirectory}/${TemplateStackConfig}"
+                TemplatePath: !Sub "BuiltTarget::${SourceDirectory}/${TemplateFileName}"
+                ParameterOverrides: !Sub '{"ProductCloudFormationTemplate":"https://${CustomEnvironmentFilesBucketName}.s3.amazonaws.com/${CustomEnvironmentFilesPrefix}/${SourceDirectory}/${ProductTemplateName}","PortfolioId":"${PortfolioId}","ConstraintRoleName":"${ConstraintRoleName}"}'
+              RunOrder: '4'
+
   CFNRole:
     Type: AWS::IAM::Role
     Properties:
@@ -108,6 +173,22 @@ Resources:
                   - 's3:*'
                 Effect: Allow
                 Resource: '*'
+        - PolicyName: ServiceCatalog Permissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - 'servicecatalog:*'
+                Effect: Allow
+                Resource: '*'
+        - PolicyName: iam Pass Role for launch constraint
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - 'iam:PassRole'
+                Effect: Allow
+                Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/${ConstraintRoleName}'
 
   PipelineRole:
     Type: AWS::IAM::Role
@@ -121,6 +202,14 @@ Resources:
         Version: '2012-10-17'
       Path: /
       Policies:
+        - PolicyName: StartCodeBuild
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                - 'codebuild:*'
+                Effect: Allow
+                Resource: !GetAtt CodeBuildProject.Arn
         - PolicyName: CodePipelineAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -136,6 +225,30 @@ Resources:
                 - 'cloudformation:DeleteChangeSet'
                 - 'cloudformation:DescribeChangeSet'
                 - 'cloudformation:SetStackPolicy'
+                - 'iam:PassRole'
+                - 'sns:Publish'
+                Effect: Allow
+                Resource: '*'
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: ['sts:AssumeRole']
+          Effect: Allow
+          Principal:
+            Service: [codebuild.amazonaws.com]
+        Version: '2012-10-17'
+      Path: /
+      Policies:
+        - PolicyName: CodeBuildAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                - 's3:*'
+                - 'logs:*'
                 - 'iam:PassRole'
                 - 'sns:Publish'
                 Effect: Allow
